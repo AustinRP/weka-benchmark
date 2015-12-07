@@ -1,11 +1,20 @@
 //package parallel.benchmark;
 
 import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.FileNotFoundException;
-import java.io.PrintWriter;
-import java.util.Scanner;
+import java.io.IOException;
+import java.util.List;
+import java.util.ArrayList;
 
 import weka.core.matrix.Matrix;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.csv.CSVPrinter;
+
 
 /**
  * Benchmark.java
@@ -38,181 +47,210 @@ import weka.core.matrix.Matrix;
  *       properly generates submatrices with getMatrix(int, int, int, int).
  * 
  * @author austinpahl
+ * @author philipconrad
  *
  */
 public class Benchmark {
 
-  // PATH corresponds to the location of the input files used below.
-  public static final String PATH = "./";
-  public static final String OUTPUT_DELIM = ",";
-  // OUTPUT_FILENAME specifies the format of the output files
-  // created in main. The name of the function that is tested
-  // should be included.
-  public static final String OUTPUT_FILENAME = "_times.csv";
-  
-  // Number of trials that should be run for each combination of
-  // threads and matrices. The output time will be the average
-  // time to completion for each trial
-  public static final int NUM_TRIALS_PER_TEST = 10;
-  
-  // 2^(MAX_INPUT_POWER) is the maximum square matrix dimension that will be 
-  // tested.
-  public static final int MAX_INPUT_POWER = 7;
-  public static final int MAX_NUM_THREADS = 4;
-  
-  
+  public static final String USAGE = "Usage:\n" +
+    "\tjava Benchmark MATRIX_A MATRIX_B NUM_THREADS\n\n" +
+    "Options:\n" +
+    "  MATRIX_A    : Matrix A for use in the benchmarks.\n" +
+    "  MATRIX_B    : Matrix B for use in the benchmarks.\n" +
+    "  NUM_TRIALS  : Number of trials to do for each method.\n" +
+    "  NUM_THREADS : Number of threads to test with.\n";
+
+  // Default number of threads to test with is 4.
+  public static int NUM_THREADS = 4;
+
   /**
    * Main function to run through all test methods and 
    * handle the data that will be output to CSV.
    */
   public static void main(String[] args) {
-    // TODO if(args.length != 
-    int maxInputSize = (int) Math.pow(2, MAX_INPUT_POWER);
-    long[][] denseTimes = new long[MAX_NUM_THREADS][MAX_INPUT_POWER];
-    long[][] sparseTimes = new long[MAX_NUM_THREADS][MAX_INPUT_POWER];
-    
-    double[][] da = new double[maxInputSize][maxInputSize];
-    double[][] db = new double[maxInputSize][maxInputSize];
-    double[][] sa = new double[maxInputSize][maxInputSize];
-    double[][] sb = new double[maxInputSize][maxInputSize];
+    if (args.length < 4) {
+      // Print usage if not enough arguments provided.
+      System.out.println(USAGE);
+      return;
+    } else {
+      // Otherwise, go ahead, and read in matrices.
+      double[][] a = readCSVFile(args[0]);
+      double[][] b = readCSVFile(args[1]);
+      int k        = Integer.parseInt(args[2]);
+      NUM_THREADS  = Integer.parseInt(args[2]);
 
-    da = readFile(PATH + "DenseA.txt", maxInputSize);
-    db = readFile(PATH + "DenseB.txt", maxInputSize);
-    sa = readFile(PATH + "SparseA.txt", maxInputSize);
-    sb = readFile(PATH + "SparseB.txt", maxInputSize);
-    
-    Matrix mda = new Matrix(da);
-    Matrix mdb = new Matrix(db);
-    Matrix msa = new Matrix(sa);
-    Matrix msb = new Matrix(sb);
-    
-    // TODO Implement a completely separate loop for checking that the output
-    // from the functions is what we expect.
-    
-    for(int i = 1; i <= MAX_NUM_THREADS; i++) {
-      Matrix.num_threads = i;
-      for(int j = 1; j <= MAX_INPUT_POWER; j++) {
-        int dAvgTrial = 0;
-        int sAvgTrial = 0;
-        // Get the appropriate submatrices for the current
-        // input size
-        Matrix subDA = mda.getMatrix(0, 0, j - 1, j - 1);
-        Matrix subDB = mdb.getMatrix(0, 0, j - 1, j - 1);
-        Matrix subSA = msa.getMatrix(0, 0, j - 1, j - 1);
-        Matrix subSB = msb.getMatrix(0, 0, j - 1, j - 1);
-        
-        // TODO Set the desired number of threads using value of i
-        
-        // Run the current combination of threads and input size
-        // NUM_TRIALS_PER_TEST times and take the average of all
-        // of the runs.
-        for(int k = 0; k < NUM_TRIALS_PER_TEST; k++) {
-          // Dense matrix trial
-          long dStartTime = System.nanoTime();
-          doOperations(subDA, subDB);
-          long dEndTime = System.nanoTime();
-          dAvgTrial += (dEndTime - dStartTime);
-          
-          // Sparse matrix trial
-          long sStartTime = System.nanoTime();
-          doOperations(subSA, subSB);
-          long sEndTime = System.nanoTime();
-          sAvgTrial += (sEndTime - sStartTime);
-        }
-        // Current unit: nanoseconds
-        denseTimes[i - 1][j - 1] = dAvgTrial / NUM_TRIALS_PER_TEST;
-        sparseTimes[i - 1][j - 1] = sAvgTrial / NUM_TRIALS_PER_TEST;
+      Matrix ma    = new Matrix(a);
+      Matrix mb    = new Matrix(b);
+
+      // Benchmark each matrix method.
+      for (MatrixMethod m : MatrixMethod.values()) {
+        long timing = benchMatrix(ma, mb, m, k);
+        System.out.printf("%s : %d\n", m, timing);
       }
     }
-    printTimes(denseTimes);
-    // printTimes(sparseTimes);
-//    outputTimes(denseTimes, PATH + "dense" + OUTPUT_FILENAME);
-//    outputTimes(sparseTimes, PATH + "sparse" + OUTPUT_FILENAME);
   }
 
-  public static double[][] readFile(String filename, int matrixSize) {
-    double[][] a = new double[matrixSize][matrixSize];
-    Scanner as = null;
-    try {
-      as = new Scanner(new File(PATH + "DenseB.txt"));
-    } catch (FileNotFoundException e) {
-      e.printStackTrace();
-    }
-    
-    for(int i = 0; as.hasNextLine(); i++) {
-      Scanner asl = new Scanner(as.nextLine());
-      for(int j = 0; asl.hasNextDouble(); j++) {
-        a[i][j] = asl.nextDouble();
-      }
-      asl.close();
-    }
-    as.close();
-    return a;
+  public enum MatrixMethod {
+    M_TRANSPOSE,
+    M_UMINUS,
+    M_PLUS,
+    M_PLUS_EQUALS,
+    M_MINUS,
+    M_MINUS_EQUALS,
+    M_ARRAY_TIMES,
+    M_ARRAY_TIMES_EQUALS,
+    M_ARRAY_RIGHT_DIVIDE,
+    M_ARRAY_RIGHT_DIVIDE_EQUALS,
+    M_ARRAY_LEFT_DIVIDE,
+    M_ARRAY_LEFT_DIVIDE_EQUALS,
+    // Constant-times-matrix case.
+    M_TIMES_D,
+    M_TIMES_EQUALS_D,
+    // Matrix-times-matrix case.
+    M_TIMES_M
   }
-  
+
   /**
    * Executes a series of methods using the specified matrices.
    * 
    * @param inputSize
    * @param numThreads
-   * @param A matrix whose functions are called with b as input
-   * @param B matrix acted upon by a
+   * @param a Matrix whose functions are called with b as input
+   * @param b Matrix acted upon by a
+   * @param target Method to test.
+   * @param k Number of trials to average over.
+   * @return Average number of nanoseconds spent in the routine under test.
    */
-  public static void doOperations(Matrix a, Matrix b) {
-    a.plus(b);
-    a.minus(b);
-    a.times(b);
-    //a.solve(b);
+  public static long benchMatrix(Matrix a, Matrix b, MatrixMethod target, int k) {
+    long out = 0;
+    switch (target) {
+      case M_TRANSPOSE:
+        out = bench(() -> { a.transpose(); }, k);
+        break;
+      case M_UMINUS:
+        out = bench(() -> { a.uminus(); }, k);
+        break;
+      case M_PLUS:
+        out = bench(() -> { a.plus(b); }, k);
+        break;
+      case M_PLUS_EQUALS:
+        out = bench(() -> { a.plusEquals(b); }, k);
+        break;
+      case M_MINUS:
+        out = bench(() -> { a.minus(b); }, k);
+        break;
+      case M_MINUS_EQUALS:
+        out = bench(() -> { a.minusEquals(b); }, k);
+        break;
+      case M_ARRAY_TIMES:
+        out = bench(() -> { a.arrayTimes(b); }, k);
+        break;
+      case M_ARRAY_TIMES_EQUALS:
+        out = bench(() -> { a.arrayTimesEquals(b); }, k);
+        break;
+      case M_ARRAY_RIGHT_DIVIDE:
+        out = bench(() -> { a.arrayRightDivide(b); }, k);
+        break;
+      case M_ARRAY_RIGHT_DIVIDE_EQUALS:
+        out = bench(() -> { a.arrayRightDivideEquals(b); }, k);
+        break;
+      case M_ARRAY_LEFT_DIVIDE:
+        out = bench(() -> { a.arrayLeftDivide(b); }, k);
+        break;
+      case M_ARRAY_LEFT_DIVIDE_EQUALS:
+        out = bench(() -> { a.arrayLeftDivideEquals(b); }, k);
+        break;
+      case M_TIMES_D:
+        out = bench(() -> { a.times(1.0); }, k);
+        break;
+      case M_TIMES_EQUALS_D:
+        out = bench(() -> { a.timesEquals(1.0); }, k);
+        break;
+      case M_TIMES_M:
+        out = bench(() -> { a.times(b); }, k);
+        break;
+      default:
+        break;
+    }
+
+    return out;
   }
-  
+
   /**
-   * Takes a matrix of times and a filename and outputs the
-   * matrix to a file.
-   * @param times
+   * Perform basic timing on anything that implements the Runnable interface.
+   * The most common use case for this is timing lambda functions.
+   *
+   * @param f The function to time.
+   * @param num_trials Number of trials to run.
+   * @return Arithmetic average of all trials.
    */
-  public static void outputTimes(long[][] times, String filename) {
-    PrintWriter out = null;
-    try {
-      out = new PrintWriter(filename);
-    } catch (FileNotFoundException e) {
-      e.printStackTrace();
+  public static long bench(Runnable f, int num_trials) {
+    long timing = 0;
+    for(int k = 0; k < num_trials; k++) {
+      long startTime = System.nanoTime();
+      f.run();
+      long endTime = System.nanoTime();
+      timing += (endTime - startTime);
     }
-    for(long[] row : times) {
-      for(int i = 0; i < row.length; i++) {
-        long ele = row[i];
-        out.print(ele);
-        if(i != row.length - 1) {
-          out.print(OUTPUT_DELIM);
-        }
-      }
-      out.println();
-    }
+    return timing / num_trials;
   }
-  // Temporary function to send time array to cout
-  public static void printTimes(long[][] times) {
-    System.out.print("numThreads" + OUTPUT_DELIM);
-    for(int i = 0; i < times[0].length; i++) {
-      int n = (int) Math.pow(2,i+1);
-      System.out.print(n + "x" + n );
-      if(i != times[0].length - 1) {
-        System.out.print(OUTPUT_DELIM);
-      }
-    }
-    System.out.println();
-     
-    for(int i = 0; i < times.length; i++) {
-      long[] row = times[i];
-      int numThreads = i + 1;
-      System.out.print(numThreads + OUTPUT_DELIM);
-      for(int j = 0; j < row.length; j++) {
-        long ele = row[j];
-        System.out.print(ele);
-        if(j != row.length - 1) {
-          System.out.print(OUTPUT_DELIM);
+
+  /**
+   * Reads in a matrix CSV file and returns a double[][].
+   *
+   * @param filename CSV file to read in.
+   * @return A double[][] 2D array, useful for constructing Matrix instances.
+   */
+  public static double[][] readCSVFile(String filename) {
+    FileReader fileReader   = null;
+    CSVParser csvFileParser = null;
+    CSVFormat csvFileFormat = CSVFormat.DEFAULT;
+    Double data[][]         = null;
+    double out[][]          = null;
+
+    try {
+      // Initialize everything and read in the CSV records.
+      fileReader      = new FileReader(filename);
+      csvFileParser   = new CSVParser(fileReader, csvFileFormat);
+      List<CSVRecord> csvRecords = csvFileParser.getRecords();
+
+      data = new Double [csvRecords.size()][];
+
+      // We assume no header, and read in everything by rows.
+      for (int i = 0; i < csvRecords.size(); i++) {
+        CSVRecord record      = csvRecords.get(i);
+        ArrayList<Double> row = new ArrayList<Double>();
+
+        // Build an arraylist for each row
+        for (int j = 0; j < record.size(); j++) {
+          double item = Double.parseDouble(record.get(j));
+          row.add(item);
         }
+        data[i] = row.toArray(new Double[row.size()]);
       }
-      System.out.println();
+
+    } catch (Exception e) {
+      System.out.println("Error during CSV file reading.");
+      e.printStackTrace();
+    } finally {
+      try {
+        fileReader.close();
+        csvFileParser.close();
+      } catch (IOException e) {
+        System.out.println("Error while closing fileReader/csvFileParser.");
+        e.printStackTrace();
+      }
     }
+
+    // Double[][] -> double[][] conversion by copying.
+    out = new double[data.length][data[0].length];
+    for (int i = 0; i < data.length; i++) {
+      for (int j = 0; j < data[0].length; j++) {
+        out[i][j] = data[i][j];
+      }
+    }
+
+    return out;
   }
 }
 

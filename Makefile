@@ -1,9 +1,19 @@
-
-PATH = 'weka.jar:.'
+# Makefile for running the benchmarks.
 MAIN = Benchmark
 
-build:
-	/usr/bin/javac -cp $(PATH) $(MAIN).java
+all: run-serial run-parallel-simple
 
-run: build
-	/usr/bin/java -cp $(PATH) $(MAIN) > results.csv
+build-serial:
+	$(eval WEKA_JAR_PATH := 'weka.jar:lib/*:.')
+	/usr/bin/javac -cp $(WEKA_JAR_PATH) $(MAIN).java
+
+run-serial: build-serial
+	/usr/bin/java -cp $(WEKA_JAR_PATH) $(MAIN) a.csv b.csv 10 2 #> results.csv
+
+
+build-parallel-simple:
+	$(eval WEKA_JAR_PATH := 'weka-parallel-simple.jar:lib/*:.')
+	/usr/bin/javac -cp $(WEKA_JAR_PATH) $(MAIN).java
+
+run-parallel-simple: build-parallel-simple
+	/usr/bin/java -cp $(WEKA_JAR_PATH) $(MAIN) a.csv b.csv 10 2 #> results.csv
