@@ -43,8 +43,9 @@ import org.apache.commons.csv.CSVPrinter;
 public class Benchmark {
 
   public static final String USAGE = "Usage:\n" +
-    "    java -cp 'weka.jar:lib/*:.' Benchmark MATRIX_A MATRIX_B NUM_THREADS\n" +
+    "    java -cp 'weka.jar:lib/*:.' Benchmark DEST MATRIX_A MATRIX_B NUM_TRIALS\n" +
     "\nOptions:\n" +
+    "  DEST        : File to write results to.\n" +
     "  MATRIX_A    : Matrix A for use in the benchmarks.\n" +
     "  MATRIX_B    : Matrix B for use in the benchmarks.\n" +
     "  NUM_TRIALS  : Number of trials to do for each method.\n" +
@@ -63,15 +64,16 @@ public class Benchmark {
    * handle the data that will be output to CSV.
    */
   public static void main(String[] args) {
-    if (args.length < 3) {
+    if (args.length < 4) {
       // Print usage if not enough arguments provided.
       System.out.println(USAGE);
       return;
     } else {
-      // Otherwise, go ahead, and read in matrices.
-      double[][] a = readCSVFile(args[0]);
-      double[][] b = readCSVFile(args[1]);
-      int k        = Integer.parseInt(args[2]);
+      // Otherwise, go ahead and read in parameters.
+      String dest  = args[0];
+      double[][] a = readCSVFile(args[1]);
+      double[][] b = readCSVFile(args[2]);
+      int k        = Integer.parseInt(args[3]);
       // If the java system property has been set, use it.
       // This can be set on the command line via:
       //     -Dweka.parallel.num_threads=N
@@ -83,10 +85,20 @@ public class Benchmark {
       Matrix mb    = new Matrix(b);
 
       // Benchmark each matrix method.
+      List to_csv = new ArrayList();
       for (MatrixMethod m : MatrixMethod.values()) {
+        List record = new ArrayList();
         long timing = benchMatrix(ma, mb, m, k);
-        System.out.printf("%s : %d\n", m, timing);
+        //System.out.printf("%s : %d\n", m, timing);
+
+        record.add(NUM_THREADS);
+        record.add(m);
+        record.add(timing);
+
+        to_csv.add(record);
       }
+      // Write records to file.
+      writeCSVFile(dest, to_csv);
     }
   }
 
@@ -251,6 +263,41 @@ public class Benchmark {
     }
 
     return out;
+  }
+
+  public static void writeCSVFile(String fileName, List<List> records) {
+    FileWriter fileWriter = null;
+    CSVPrinter csvFilePrinter = null;
+    CSVFormat csvFileFormat = CSVFormat.DEFAULT.withRecordSeparator("\n");
+
+    // Header fields for output.
+    Object[] header = new String[]{"NumThreads", "Method", "Time (ns)"};
+
+    try {
+      // Initialize everything.
+      fileWriter = new FileWriter(fileName);
+      csvFilePrinter = new CSVPrinter(fileWriter, csvFileFormat);
+
+      // Write CSV file header.
+      csvFilePrinter.printRecord(header);
+
+      // Write records.
+      for (List record : records) {
+        csvFilePrinter.printRecord(record);
+      }
+    } catch (Exception e) {
+      System.out.println("Error during CSV file writing.");
+      e.printStackTrace();
+    } finally {
+      try {
+        fileWriter.flush();
+        fileWriter.close();
+        csvFilePrinter.close();
+      } catch (IOException e) {
+        System.out.println("Error while flushing/closing fileWriter/csvPrinter.");
+        e.printStackTrace();
+      }
+    }
   }
 }
 
