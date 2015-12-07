@@ -19,32 +19,22 @@ import org.apache.commons.csv.CSVPrinter;
 /**
  * Benchmark.java
  * 
- * This class tests and runs matrix arithmetic algorithms with a variety
- * of input sizes and numbers of threads. The program reads in a 
- * "DenseA.txt", "DenseB.txt", "SparseA.txt", and "SparseB.txt" which
- * are then used for multiple trials. The time results of all of the trials
- * are printed to console. 
- * 
- * For the sake of simplicity generating a CSV, only the dense times are 
- * printed at the moment. This can currently be adjusted by changing the 
- * logic at the very end of main.
- * 
+ * This program allows one to benchmark the Weka library under a series of
+ * per-function tests.
+ *
+ * The user specifies 4 things at the command line:
+ * - The CSV file to use for building matrix A.
+ * - The CSV file to use for building matrix B.
+ * - The number of trials to run for each function under test.
+ * - The number of threads to allocate under-the-hood for everything.(*)
+ *
  * OUTPUT FORMAT
- *   Each row corresponds to a number of threads being used, starting with 1.
- *   Each column corresponds to an input size, where column n has input size
- *     2^n starting with n=1.
  *   The unit is nanoseconds.
- * 
- * The time to complete each algorithm at each input size and 
- * number of threads is stored in a CSV. 
  * 
  * Note: The tests that are used here should not be considered exhaustive.
  *       They are designed with the intent of generating data for the
  *       purpose of analyzing speedup and efficiency of parallel
  *       algorithms.
- *       
- *       Additionally, we assume that the weka.core.matrix.Matrix class
- *       properly generates submatrices with getMatrix(int, int, int, int).
  * 
  * @author austinpahl
  * @author philipconrad
@@ -53,15 +43,21 @@ import org.apache.commons.csv.CSVPrinter;
 public class Benchmark {
 
   public static final String USAGE = "Usage:\n" +
-    "\tjava Benchmark MATRIX_A MATRIX_B NUM_THREADS\n\n" +
-    "Options:\n" +
+    "    java -cp 'weka.jar:lib/*:.' Benchmark DEST MATRIX_A MATRIX_B NUM_TRIALS\n" +
+    "\nOptions:\n" +
+    "  DEST        : File to write results to.\n" +
     "  MATRIX_A    : Matrix A for use in the benchmarks.\n" +
     "  MATRIX_B    : Matrix B for use in the benchmarks.\n" +
     "  NUM_TRIALS  : Number of trials to do for each method.\n" +
-    "  NUM_THREADS : Number of threads to test with.\n";
+    "\nNote:\n" +
+    "  To set the number of threads to use in parallel versions of Weka,\n" +
+    "  put the command line parameter `-Dweka.parallel.num_threads=N`\n" +
+    "  before `Benchmark` on the command line.\n" +
+    "  Ex:\n" +
+    "    java [...] -Dweka.parallel.num_threads=4 Benchmark [...]\n";
 
-  // Default number of threads to test with is 4.
-  public static int NUM_THREADS = 4;
+  // Default to single-threaded execution.
+  public static int NUM_THREADS = 1;
 
   /**
    * Main function to run through all test methods and 
@@ -73,20 +69,36 @@ public class Benchmark {
       System.out.println(USAGE);
       return;
     } else {
-      // Otherwise, go ahead, and read in matrices.
-      double[][] a = readCSVFile(args[0]);
-      double[][] b = readCSVFile(args[1]);
-      int k        = Integer.parseInt(args[2]);
-      NUM_THREADS  = Integer.parseInt(args[2]);
+      // Otherwise, go ahead and read in parameters.
+      String dest  = args[0];
+      double[][] a = readCSVFile(args[1]);
+      double[][] b = readCSVFile(args[2]);
+      int k        = Integer.parseInt(args[3]);
+      // If the java system property has been set, use it.
+      // This can be set on the command line via:
+      //     -Dweka.parallel.num_threads=N
+      if (System.getProperty("weka.parallel.num_threads") != null) {
+        NUM_THREADS  = Integer.parseInt(System.getProperty("weka.parallel.num_threads"));
+      }
 
       Matrix ma    = new Matrix(a);
       Matrix mb    = new Matrix(b);
 
       // Benchmark each matrix method.
+      List to_csv = new ArrayList();
       for (MatrixMethod m : MatrixMethod.values()) {
+        List record = new ArrayList();
         long timing = benchMatrix(ma, mb, m, k);
-        System.out.printf("%s : %d\n", m, timing);
+        //System.out.printf("%s : %d\n", m, timing);
+
+        record.add(NUM_THREADS);
+        record.add(m);
+        record.add(timing);
+
+        to_csv.add(record);
       }
+      // Write records to file.
+      writeCSVFile(dest, to_csv);
     }
   }
 
@@ -251,6 +263,41 @@ public class Benchmark {
     }
 
     return out;
+  }
+
+  public static void writeCSVFile(String fileName, List<List> records) {
+    FileWriter fileWriter = null;
+    CSVPrinter csvFilePrinter = null;
+    CSVFormat csvFileFormat = CSVFormat.DEFAULT.withRecordSeparator("\n");
+
+    // Header fields for output.
+    Object[] header = new String[]{"NumThreads", "Method", "Time (ns)"};
+
+    try {
+      // Initialize everything.
+      fileWriter = new FileWriter(fileName);
+      csvFilePrinter = new CSVPrinter(fileWriter, csvFileFormat);
+
+      // Write CSV file header.
+      csvFilePrinter.printRecord(header);
+
+      // Write records.
+      for (List record : records) {
+        csvFilePrinter.printRecord(record);
+      }
+    } catch (Exception e) {
+      System.out.println("Error during CSV file writing.");
+      e.printStackTrace();
+    } finally {
+      try {
+        fileWriter.flush();
+        fileWriter.close();
+        csvFilePrinter.close();
+      } catch (IOException e) {
+        System.out.println("Error while flushing/closing fileWriter/csvPrinter.");
+        e.printStackTrace();
+      }
+    }
   }
 }
 
