@@ -18,9 +18,7 @@ Options:
 def gen_matrix(m, n, v):
     out = []
     for i in range(0, m):
-        row = []
-        for j in range(0, n):
-            row.append(v)
+        row = [1 for j in range(0, n)]
         out.append(row)
     return out
 
@@ -35,8 +33,7 @@ if __name__ == '__main__':
         with open(src, 'w') as csvfile:
             matrixwriter = csv.writer(csvfile)
             matrix = gen_matrix(m, n, 1)
-            for row in matrix:
-                matrixwriter.writerow(row)
+            matrixwriter.writerows(matrix)
     except IndexError:
         # Otherwise, print usage and bail.
         print USAGE
